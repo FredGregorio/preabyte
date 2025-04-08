@@ -19,16 +19,17 @@ void loop() {
   digitalWrite(LedVermelho, HIGH);
   // Tempo de Espera
   delay(5000);
-  digitalWrite(LedVermelho, LOW); 
+  digitalWrite(LedVermelho, LOW);
+  // Liga o Led Verde
+  digitalWrite(LedVerde, HIGH);
+  // Tempo de Espera
+  delay(3000);
+  digitalWrite(LedVerde, LOW); 
   // Liga o Led Amarelo
   digitalWrite(LedAmarelo, HIGH);
   // Tempo de Espera
   delay(3000);
   digitalWrite(LedAmarelo, LOW);
-  // Liga o Led Verde
-  digitalWrite(LedVerde, HIGH);
-  // Tempo de Espera
-  delay(3000);
-  digitalWrite(LedVerde, LOW);
+
 
 }
