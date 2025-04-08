@@ -1,0 +1,19 @@
+// Código Feito para o ESP3 
+// Feito e testado no Simulador WOKWI 
+
+void setup() {
+  
+  pinMode(12, OUTPUT);
+
+}
+
+void loop() {
+  // Acende o Led
+  digitalWrite(12, HIGH);
+  // Atraso
+  delay(1000); 
+  // Apaga o Led
+  digitalWrite(12, LOW);
+  // Atraso
+  delay(1000); 
+}
