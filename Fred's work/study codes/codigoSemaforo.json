@@ -1,5 +1,5 @@
 // SEMAFÓRO
-// Código Feito para o ESP3 
+// Código Feito para o ESP32 
 // Feito e testado no Simulador WOKWI 
 
 #define LedVermelho 12
