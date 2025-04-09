@@ -2,7 +2,7 @@
 // Código Feito para o ESP32
 // Feito e testado no Simulador WOKWI 
 
-#define Led 12
+#define Led 11 // o pino 11 suporta PWM
 
 
 void setup() {
