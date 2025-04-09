@@ -3,8 +3,8 @@
 // Feito e testado no Simulador WOKWI 
 
 #define LedVermelho 12
-#define LedAmarelo 14
-#define LedVerde 27
+#define LedAmarelo 13
+#define LedVerde 11
 
 void setup() {
   
