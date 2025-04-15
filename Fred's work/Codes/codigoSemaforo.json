@@ -1,0 +1,35 @@
+// SEMAFÓRO
+// Código Feito para o ESP32 
+// Feito e testado no Simulador WOKWI 
+
+#define LedVermelho 12
+#define LedAmarelo 13
+#define LedVerde 11
+
+void setup() {
+  
+  pinMode(LedVermelho, OUTPUT);
+  pinMode(LedAmarelo, OUTPUT);
+  pinMode(LedVerde, OUTPUT);
+
+}
+
+void loop() {
+  // Acende o Led Vermelho
+  digitalWrite(LedVermelho, HIGH);
+  // Tempo de Espera
+  delay(5000);
+  digitalWrite(LedVermelho, LOW);
+  // Liga o Led Verde
+  digitalWrite(LedVerde, HIGH);
+  // Tempo de Espera
+  delay(3000);
+  digitalWrite(LedVerde, LOW); 
+  // Liga o Led Amarelo
+  digitalWrite(LedAmarelo, HIGH);
+  // Tempo de Espera
+  delay(3000);
+  digitalWrite(LedAmarelo, LOW);
+
+
+}
