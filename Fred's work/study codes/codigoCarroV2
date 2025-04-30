@@ -1,0 +1,162 @@
+#include <ESP8266WiFi.h>
+
+const char* ssid = "ESP_Carrinho";
+const char* password = "12345678";
+
+WiFiServer server(80);
+
+int velocidade = 700;
+
+void setup() {
+  pinMode(0, OUTPUT); // IN1
+  pinMode(1, OUTPUT); // IN2
+  pinMode(2, OUTPUT); // ENA (PWM)
+  pinMode(3, OUTPUT); // ENB (PWM)
+
+  WiFi.softAP(ssid, password);
+  server.begin();
+}
+
+void frente() {
+  digitalWrite(0, HIGH);
+  digitalWrite(1, LOW);
+  analogWrite(2, velocidade);
+  analogWrite(3, velocidade);
+}
+
+void tras() {
+  digitalWrite(0, LOW);
+  digitalWrite(1, HIGH);
+  analogWrite(2, velocidade);
+  analogWrite(3, velocidade);
+}
+
+void parar() {
+  digitalWrite(0, LOW);
+  digitalWrite(1, LOW);
+  analogWrite(2, 0);
+  analogWrite(3, 0);
+}
+
+void esquerda() {
+  digitalWrite(0, LOW);
+  digitalWrite(1, HIGH);
+  analogWrite(2, velocidade);
+  analogWrite(3, 0);
+}
+
+void direita() {
+  digitalWrite(0, HIGH);
+  digitalWrite(1, LOW);
+  analogWrite(2, 0);
+  analogWrite(3, velocidade);
+}
+
+void loop() {
+  WiFiClient client = server.available();
+  if (!client) return;
+  while (!client.available()) delay(1);
+
+  String req = client.readStringUntil('\r');
+  client.flush();
+
+  if (req.indexOf("/frente") != -1) frente();
+  else if (req.indexOf("/tras") != -1) tras();
+  else if (req.indexOf("/parar") != -1) parar();
+  else if (req.indexOf("/esquerda") != -1) esquerda();
+  else if (req.indexOf("/direita") != -1) direita();
+  else if (req.indexOf("/vel=") != -1) {
+    int v = req.substring(req.indexOf("vel=") + 4).toInt();
+    if (v >= 0 && v <= 1023) velocidade = v;
+  }
+
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println();
+  client.println(R"rawliteral(
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body { text-align:center; font-family:sans-serif; margin:0; padding:0; background:#f4f4f4; }
+      canvas { border:1px solid #ccc; margin-top:20px; }
+    </style>
+  </head>
+  <body>
+    <h2>Controle com Joystick</h2>
+    <p>Velocidade:
+      <input type="range" min="100" max="1023" value="700" oninput="setVel(this.value)">
+    </p>
+    <canvas id="joy" width="200" height="200"></canvas>
+
+    <script>
+      let canvas = document.getElementById('joy');
+      let ctx = canvas.getContext('2d');
+      let centerX = canvas.width / 2;
+      let centerY = canvas.height / 2;
+      let radius = 30;
+      let dragging = false;
+
+      function drawStick(x, y) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 80, 0, Math.PI * 2); ctx.strokeStyle = '#aaa'; ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#007bff'; ctx.fill();
+      }
+
+      function enviar(cmd) {
+        fetch('/' + cmd);
+      }
+
+      function setVel(v) {
+        fetch('/vel=' + v);
+      }
+
+      function handleMove(x, y) {
+        let dx = x - centerX;
+        let dy = y - centerY;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        let dir = '';
+
+        if (dist < 15) {
+          enviar('parar');
+          return drawStick(centerX, centerY);
+        }
+
+        if (Math.abs(dx) > Math.abs(dy)) {
+          if (dx > 20) dir = 'direita';
+          else if (dx < -20) dir = 'esquerda';
+        } else {
+          if (dy > 20) dir = 'tras';
+          else if (dy < -20) dir = 'frente';
+        }
+
+        if (dir) enviar(dir);
+        drawStick(x, y);
+      }
+
+      canvas.addEventListener('touchstart', e => {
+        dragging = true;
+        handleMove(e.touches[0].clientX - canvas.offsetLeft, e.touches[0].clientY - canvas.offsetTop);
+      });
+
+      canvas.addEventListener('touchmove', e => {
+        if (!dragging) return;
+        handleMove(e.touches[0].clientX - canvas.offsetLeft, e.touches[0].clientY - canvas.offsetTop);
+        e.preventDefault();
+      });
+
+      canvas.addEventListener('touchend', () => {
+        dragging = false;
+        enviar('parar');
+        drawStick(centerX, centerY);
+      });
+
+      drawStick(centerX, centerY);
+    </script>
+  </body>
+</html>
+)rawliteral");
+}
