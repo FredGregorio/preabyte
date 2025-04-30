@@ -1,0 +1,121 @@
+#include <ESP8266WiFi.h>
+
+const char* ssid = "ESP_Carrinho";
+const char* password = "12345678";
+
+WiFiServer server(80);
+
+int vel = 700;
+
+void setup() {
+  pinMode(0, OUTPUT); // A frente
+  pinMode(1, OUTPUT); // A trás
+  pinMode(2, OUTPUT); // B frente
+  pinMode(3, OUTPUT); // B trás
+
+  digitalWrite(0, LOW);
+  digitalWrite(1, LOW);
+  digitalWrite(2, LOW);
+  digitalWrite(3, LOW);
+
+  WiFi.softAP(ssid, password);
+  server.begin();
+}
+
+void parar() {
+  analogWrite(0, 0);
+  analogWrite(1, 0);
+  analogWrite(2, 0);
+  analogWrite(3, 0);
+}
+
+void frente() {
+  analogWrite(0, vel);
+  analogWrite(1, 0);
+  analogWrite(2, vel);
+  analogWrite(3, 0);
+}
+
+void tras() {
+  analogWrite(0, 0);
+  analogWrite(1, vel);
+  analogWrite(2, 0);
+  analogWrite(3, vel);
+}
+
+void esquerda() {
+  analogWrite(0, 0);
+  analogWrite(1, vel);
+  analogWrite(2, vel);
+  analogWrite(3, 0);
+}
+
+void direita() {
+  analogWrite(0, vel);
+  analogWrite(1, 0);
+  analogWrite(2, 0);
+  analogWrite(3, vel);
+}
+
+void loop() {
+  WiFiClient client = server.available();
+  if (!client) return;
+  while (!client.available()) delay(1);
+
+  String req = client.readStringUntil('\r');
+  client.flush();
+
+  if (req.indexOf("/frente") != -1) frente();
+  else if (req.indexOf("/tras") != -1) tras();
+  else if (req.indexOf("/esquerda") != -1) esquerda();
+  else if (req.indexOf("/direita") != -1) direita();
+  else if (req.indexOf("/parar") != -1) parar();
+  else if (req.indexOf("/vel=") != -1) {
+    int novaVel = req.substring(req.indexOf("vel=") + 4).toInt();
+    if (novaVel >= 0 && novaVel <= 1023) vel = novaVel;
+  }
+
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println();
+  client.println(R"rawliteral(
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body { text-align:center; font-family:sans-serif; background:#eee; }
+      button {
+        width:80px; height:80px; font-size:30px; margin:5px;
+        border:none; border-radius:10px; background:#007bff; color:white;
+      }
+      #controls { display:flex; flex-direction:column; align-items:center; }
+      #middle { display:flex; justify-content:center; }
+    </style>
+  </head>
+  <body>
+    <h2>Controle do Carrinho</h2>
+    <p>Velocidade: <input type="range" min="100" max="1023" value="700"
+     oninput="setVel(this.value)"></p>
+
+    <div id="controls">
+      <button onclick="enviar('frente')">↑</button>
+      <div id="middle">
+        <button onclick="enviar('esquerda')">←</button>
+        <button onclick="enviar('parar')">■</button>
+        <button onclick="enviar('direita')">→</button>
+      </div>
+      <button onclick="enviar('tras')">↓</button>
+    </div>
+
+    <script>
+      function enviar(cmd) {
+        fetch('/' + cmd);
+      }
+      function setVel(v) {
+        fetch('/vel=' + v);
+      }
+    </script>
+  </body>
+</html>
+)rawliteral");
+}
