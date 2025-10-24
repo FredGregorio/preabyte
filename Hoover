@@ -2,103 +2,171 @@
 #include <ESP8266WebServer.h>
 
 // --- Configuração da Rede ---
-const char *ssid = "Carro_ESP01s"; // O nome da rede Wi-Fi que o carro vai criar
-const char *password = "12345678"; // A senha da rede
-
-ESP8266WebServer server(80); // O servidor web na porta 80
+const char *ssid = "Carro_ESP01s";
+const char *password = "12345678";
+ESP8266WebServer server(80);
 
 // --- Configuração dos Pinos ---
-// Lembre-se dos problemas de boot!
-// GPIO0 (D3 no NodeMCU, mas GPIO0 no ESP-01s) - CUIDADO: Precisa de PULL-UP externo!
-#define PINO_IN1 0  // Motor Esquerdo - Frente
-// GPIO2 (D4 no NodeMCU, mas GPIO2 no ESP-01s) - Pino seguro
-#define PINO_IN2 2  // Motor Esquerdo - Trás
-// GPIO1 (TX) - CUIDADO: Motor vai pular no boot!
-#define PINO_IN3 1  // Motor Direito - Frente
-// GPIO3 (RX) - CUIDADO: Precisa desconectar para programar!
-#define PINO_IN4 3  // Motor Direito - Trás
-
-// O ESP8266 tem PWM de 10 bits (0-1023)
+#define PINO_IN1 0  // Motor Esquerdo - Frente (GPIO0 - Cuidado com Pull-Up!)
+#define PINO_IN2 2  // Motor Esquerdo - Trás (GPIO2)
+#define PINO_IN3 1  // Motor Direito - Frente (GPIO1 - TX)
+#define PINO_IN4 3  // Motor Direito - Trás (GPIO3 - RX)
 #define VELOCIDADE_MAX 1023 
 
-// Página HTML principal que será enviada ao navegador
-// Ela inclui a biblioteca NippleJS (joystick)
+// --- [HTML ATUALIZADO] ---
 const char *HTML_CONTROLE = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Controle Carro ESP</title>
+    <title>Controle Hoover V1</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400&display=swap" rel="stylesheet">
+    
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            background-color: #2c2c2c;
-            color: white;
+        * {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            overflow: hidden; /* Evita barras de rolagem */
         }
+        html, body {
+            height: 100vh;
+            font-family: 'Montserrat', sans-serif;
+            background-color: #1d2d3a;
+            color: #f0f0f0;
+            overflow: hidden;
+        }
+        
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
         h1 {
-            margin-top: 20px;
+            font-weight: 300;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            font-size: 1.8em;
+            margin-bottom: 30px;
+            color: #0099ff;
         }
+
         #joystick-container {
-            /* Centraliza o joystick */
             position: relative;
-            width: 300px;
-            height: 300px;
-            margin: 50px auto;
-            background: #444;
+            width: 280px;
+            height: 280px;
+            background: linear-gradient(145deg, #20313f, #1a2933);
             border-radius: 50%;
+            border: 3px solid #2a3c4b;
+            box-shadow: inset 0 5px 25px rgba(0,0,0,0.4), 
+                        0 0 25px rgba(0,120,220,0.2);
         }
+
+        #status {
+            font-weight: 400;
+            font-size: 1em;
+            color: #8899a6; 
+            margin-top: 40px;
+            height: 1.2em;
+        }
+
+        /* === [NOVO] ESTILO DA BARRA DE ACELERAÇÃO === */
+        #gauge-label {
+            font-size: 0.9em;
+            color: #8899a6;
+            margin-top: 25px;
+            font-weight: 300;
+        }
+        #gauge-container {
+            width: 80%;
+            max-width: 280px; /* Mesma largura do joystick */
+            height: 20px;
+            background-color: #1a2933; /* Fundo escuro da barra */
+            border: 2px solid #2a3c4b;
+            border-radius: 10px;
+            margin-top: 10px;
+            overflow: hidden; /* Para conter a barra interna */
+        }
+        #gauge-bar {
+            width: 0%; /* Começa em 0% */
+            height: 100%;
+            background-color: #0099ff; /* Cor da barra (azul) */
+            border-radius: 7px;
+            /* Animação suave */
+            transition: width 0.1s linear; 
+        }
+
     </style>
 </head>
 <body>
-    <h1>Controle ESP-01s</h1>
+    <h1>HOOVER V1</h1>
+    
     <div id="joystick-container"></div>
+    
     <h3 id="status">Status: Parado</h3>
 
+    <div id="gauge-label">Acelerador</div>
+    <div id="gauge-container">
+        <div id="gauge-bar"></div>
+    </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
     <script>
         const statusEl = document.getElementById('status');
+        // --- [NOVO] Pega o elemento da barra ---
+        const gaugeBarEl = document.getElementById('gauge-bar');
+        
         let lastX = 0;
         let lastY = 0;
 
-        // Configura o Joystick
         var options = {
             zone: document.getElementById('joystick-container'),
             mode: 'static',
             position: { left: '50%', top: '50%' },
-            color: 'blue',
-            size: 200,
-            threshold: 0.1, // Sensibilidade
+            color: '#0099ff',
+            frontColor: 'rgba(255,255,255,0.7)',
+            size: 180,
+            threshold: 0.1,
             restJoystick: true
         };
         
         var joy = nipplejs.create(options);
 
-        // Função para enviar os dados para o ESP
+        // --- [MODIFICADO] Função de enviar comando ---
         async function enviarComando(x, y) {
             lastX = x;
             lastY = y;
 
-            statusEl.innerText = `Status: X=${x.toFixed(2)}, Y=${y.toFixed(2)}`;
+            // 1. Atualiza o Status (Movendo/Parado)
+            if (x === 0 && y === 0) {
+                statusEl.innerText = "Status: Parado";
+            } else {
+                statusEl.innerText = "Status: Movendo";
+            }
+
+            // 2. Atualiza a Barra de Aceleração
+            // Math.abs(y) pega o valor absoluto (ignora se é frente ou trás)
+            // e multiplica por 100 para virar porcentagem.
+            let velocidadePercent = Math.abs(y) * 100;
+            gaugeBarEl.style.width = velocidadePercent + '%';
             
+            // 3. Envia o comando para o ESP
             try {
-                // Envia os dados para o endpoint /joy no ESP
                 await fetch(`/joy?x=${x}&y=${y}`);
             } catch (e) {
                 statusEl.innerText = "Erro de conexao!";
+                gaugeBarEl.style.width = '0%'; // Zera a barra se der erro
             }
         }
+        // --- Fim da modificação ---
 
 
         // Evento quando o joystick é movido
         joy.on('move', function (evt, data) {
             if (data.distance === 0) return;
             
-            // Converte a distância e ângulo para X e Y (range -1.0 a 1.0)
             let x = (data.distance / 100.0) * Math.cos(data.angle.radian);
             let y = (data.distance / 100.0) * Math.sin(data.angle.radian);
             
@@ -116,158 +184,108 @@ const char *HTML_CONTROLE = R"rawliteral(
 )rawliteral";
 
 
-// --- Funções de Controle dos Motores ---
+// --- Funções de Controle dos Motores (SEM MUDANÇAS) ---
 void controlarMotores(float x, float y) {
-    // x -> Direção (Esquerda/Direita) [-1.0 a 1.0]
-    // y -> Velocidade (Frente/Trás)  [-1.0 a 1.0]
-
-    // 1. Mapeia os valores de Y (frente/trás) para velocidade PWM (0-1023)
     int velocidadeFrente = y > 0 ? map(y * 100, 0, 100, 0, VELOCIDADE_MAX) : 0;
     int velocidadeTras = y < 0 ? map(y * -100, 0, 100, 0, VELOCIDADE_MAX) : 0;
-
-    // 2. Mapeia os valores de X (curva) para reduzir a velocidade de um dos lados
-    // Isso é chamado de "Mixagem de Direção" (Tank Steering Mix)
-    float ganhoDirecao = x; // x vai de -1 (esquerda) a 1 (direita)
-
+    float ganhoDirecao = x;
     int velMotorEsquerdo = 0;
     int velMotorDireito = 0;
 
-    if (y > 0) { // Indo para FRENTE
-        if (x > 0) { // Virar para Direita (Reduz motor direito)
+    if (y > 0) { // FRENTE
+        if (x > 0) { // Virar Direita
             velMotorEsquerdo = velocidadeFrente;
             velMotorDireito = velocidadeFrente * (1.0 - ganhoDirecao);
-        } else { // Virar para Esquerda (Reduz motor esquerdo)
+        } else { // Virar Esquerda
             velMotorEsquerdo = velocidadeFrente * (1.0 + ganhoDirecao);
             velMotorDireito = velocidadeFrente;
         }
-    } else if (y < 0) { // Indo para TRÁS
-        if (x > 0) { // Virar para Direita (em ré)
+    } else if (y < 0) { // TRÁS
+        if (x > 0) { // Virar Direita (em ré)
             velMotorEsquerdo = velocidadeTras;
             velMotorDireito = velocidadeTras * (1.0 - ganhoDirecao);
-        } else { // Virar para Esquerda (em ré)
+        } else { // Virar Esquerda (em ré)
             velMotorEsquerdo = velocidadeTras * (1.0 + ganhoDirecao);
             velMotorDireito = velocidadeTras;
         }
-    } else {
-        // "Girar no Eixo" (sem mover frente/trás, apenas X)
-        if (x > 0) { // Girar Direita (Motor Esq p/ Frente, Dir p/ Trás)
+    } else { // Girar no Eixo
+        if (x > 0) { // Girar Direita
             int velGiro = map(x * 100, 0, 100, 0, VELOCIDADE_MAX);
-            // Motor Esquerdo FRENTE
             analogWrite(PINO_IN2, 0); 
             analogWrite(PINO_IN1, velGiro);
-            // Motor Direito TRÁS
             analogWrite(PINO_IN3, 0);
             analogWrite(PINO_IN4, velGiro);
-            return; // Já definimos, podemos sair
+            return;
         } else if (x < 0) { // Girar Esquerda
             int velGiro = map(x * -100, 0, 100, 0, VELOCIDADE_MAX);
-            // Motor Esquerdo TRÁS
             analogWrite(PINO_IN1, 0);
             analogWrite(PINO_IN2, velGiro);
-            // Motor Direito FRENTE
             analogWrite(PINO_IN4, 0);
             analogWrite(PINO_IN3, velGiro);
-            return; // Já definimos, podemos sair
+            return;
         }
     }
 
-    // --- Aplica os comandos FRENTE/TRÁS com curva ---
-    
     // Motor Esquerdo
     if (velocidadeFrente > 0) {
-        analogWrite(PINO_IN2, 0); // Trás desligado
-        analogWrite(PINO_IN1, velMotorEsquerdo); // Frente com PWM
+        analogWrite(PINO_IN2, 0);
+        analogWrite(PINO_IN1, velMotorEsquerdo);
     } else if (velocidadeTras > 0) {
-        analogWrite(PINO_IN1, 0); // Frente desligado
-        analogWrite(PINO_IN2, velMotorEsquerdo); // Trás com PWM
+        analogWrite(PINO_IN1, 0);
+        analogWrite(PINO_IN2, velMotorEsquerdo);
     } else {
-        // Parar Motor Esquerdo
         analogWrite(PINO_IN1, 0);
         analogWrite(PINO_IN2, 0);
     }
 
     // Motor Direito
     if (velocidadeFrente > 0) {
-        analogWrite(PINO_IN4, 0); // Trás desligado
-        analogWrite(PINO_IN3, velMotorDireito); // Frente com PWM
+        analogWrite(PINO_IN4, 0);
+        analogWrite(PINO_IN3, velMotorDireito);
     } else if (velocidadeTras > 0) {
-        analogWrite(PINO_IN3, 0); // Frente desligado
-        analogWrite(PINO_IN4, velMotorDireito); // Trás com PWM
+        analogWrite(PINO_IN3, 0);
+        analogWrite(PINO_IN4, velMotorDireito);
     } else {
-        // Parar Motor Direito
         analogWrite(PINO_IN3, 0);
         analogWrite(PINO_IN4, 0);
     }
 }
 
-
-// --- Funções do Servidor Web ---
-
-// 1. O que fazer quando o usuário pede a página principal
+// --- Funções do Servidor Web (SEM MUDANÇAS) ---
 void handleRoot() {
   server.send(200, "text/html", HTML_CONTROLE);
 }
-
-// 2. O que fazer quando o joystick envia dados para /joy
 void handleJoy() {
     float x = 0;
     float y = 0;
-
-    // Pega os argumentos da URL (ex: /joy?x=0.5&y=-0.2)
-    if (server.hasArg("x")) {
-        x = server.arg("x").toFloat();
-    }
-    if (server.hasArg("y")) {
-        y = server.arg("y").toFloat();
-    }
-
-    // Envia os valores para os motores
+    if (server.hasArg("x")) { x = server.arg("x").toFloat(); }
+    if (server.hasArg("y")) { y = server.arg("y").toFloat(); }
     controlarMotores(x, y);
-
-    // Responde ao navegador (qualquer resposta serve, 200 = OK)
     server.send(200, "text/plain", "OK");
 }
-
-// 3. O que fazer se pedirem uma página que não existe
 void handleNotFound() {
   server.send(404, "text/plain", "Nao encontrado");
 }
 
-
-// --- SETUP: Executa uma vez ---
+// --- SETUP (SEM MUDANÇAS) ---
 void setup() {
-  // ATENÇÃO: Serial não vai funcionar se os pinos TX/RX estiverem ligados na L298N
-  // Serial.begin(115200); 
-  
-  // Configura os 4 pinos como SAÍDA
   pinMode(PINO_IN1, OUTPUT);
   pinMode(PINO_IN2, OUTPUT);
   pinMode(PINO_IN3, OUTPUT);
   pinMode(PINO_IN4, OUTPUT);
-
-  // Garante que os motores comecem parados
   analogWrite(PINO_IN1, 0);
   analogWrite(PINO_IN2, 0);
   analogWrite(PINO_IN3, 0);
   analogWrite(PINO_IN4, 0);
-
-  // Configura o range do PWM do ESP8266 (0-1023)
   analogWriteRange(VELOCIDADE_MAX);
-
-  // Inicia o Modo Access Point (AP)
   WiFi.softAP(ssid, password);
-
-  // Define as "rotas" do servidor
-  server.on("/", HTTP_GET, handleRoot); // Página principal
-  server.on("/joy", HTTP_GET, handleJoy); // Endpoint dos dados do joystick
-  server.onNotFound(handleNotFound);      // 404
-
-  // Inicia o servidor
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/joy", HTTP_GET, handleJoy);
+  server.onNotFound(handleNotFound);
   server.begin();
 }
 
-// --- LOOP: Executa continuamente ---
+// --- LOOP (SEM MUDANÇAS) ---
 void loop() {
-  // Permite que o servidor web processe novas requisições
   server.handleClient();
 }
