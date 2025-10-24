@@ -1,0 +1,333 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+
+// --- Configuração da Rede ---
+const char *ssid = "Carro_ESP01s";
+const char *password = "12345678";
+ESP8266WebServer server(80);
+
+// --- Configuração dos Pinos (Sem Mudança) ---
+#define PINO_IN1 0  // Motor Esquerdo - Frente (GPIO0 - Cuidado com Pull-Up!)
+#define PINO_IN2 2  // Motor Esquerdo - Trás (GPIO2)
+#define PINO_IN3 1  // Motor Direito - Frente (GPIO1 - TX)
+#define PINO_IN4 3  // Motor Direito - Trás (GPIO3 - RX)
+#define VELOCIDADE_MAX 1023 
+
+// --- [HTML ATUALIZADO - VERSÃO BOTÕES] ---
+const char *HTML_CONTROLE = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Controle Hoover V1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            /* Desabilita zoom por toque duplo e seleção de texto */
+            user-select: none;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            -moz-user-select: none;
+            -webkit-tap-highlight-color: rgba(0,0,0,0);
+        }
+        html, body {
+            height: 100vh;
+            font-family: Arial, sans-serif; /* Fonte padrão, 100% offline */
+            background-color: #1d2d3a;
+            color: #f0f0f0;
+            overflow: hidden;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-around; /* Distribui o espaço */
+            align-items: center;
+            text-align: center;
+            padding: 20px 0;
+        }
+
+        h1 {
+            font-weight: 300;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            font-size: 1.8em;
+            color: #0099ff;
+        }
+
+        /* --- [NOVO] Estilo do Slider de Velocidade --- */
+        #speed-container {
+            width: 90%;
+            max-width: 350px;
+        }
+        #speed-label {
+            font-size: 1.1em;
+            color: #8899a6;
+            margin-bottom: 10px;
+        }
+        #speed-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 25px;
+            background: #1a2933;
+            border: 2px solid #2a3c4b;
+            border-radius: 12px;
+            outline: none;
+        }
+        /* Estilo do "pino" do slider */
+        #speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 40px;
+            height: 40px;
+            background: #0099ff;
+            border-radius: 50%;
+            border: 2px solid white;
+            cursor: pointer;
+        }
+
+        /* --- [NOVO] Estilo do D-Pad (Botões) --- */
+        #d-pad-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: 1fr 1fr 1fr;
+            width: 270px; /* Tamanho do D-pad */
+            height: 270px;
+            gap: 10px;
+        }
+        .d-pad-btn {
+            background: #2a3c4b;
+            border: 2px solid #3c5a75;
+            border-radius: 20px;
+            color: white;
+            font-size: 2.5em;
+            /* Impede o navegador de assumir o "scroll" quando
+               o usuário segura o dedo no botão */
+            touch-action: manipulation; 
+        }
+        /* Estilo do botão "Pressionado" */
+        .d-pad-btn:active {
+            background: #0099ff;
+            border-color: white;
+            transform: scale(0.95);
+        }
+
+        /* Posicionamento dos botões no grid */
+        #btn-frente   { grid-column: 2; grid-row: 1; }
+        #btn-esquerda { grid-column: 1; grid-row: 2; }
+        #btn-direita  { grid-column: 3; grid-row: 2; }
+        #btn-tras     { grid-column: 2; grid-row: 3; }
+        #btn-parar    { 
+            grid-column: 2; 
+            grid-row: 2;
+            background-color: #8f2d2d; /* Vermelho escuro */
+            border-color: #c0392b;
+        }
+        #btn-parar:active {
+            background-color: #e74c3c; /* Vermelho claro */
+        }
+
+        /* --- Status --- */
+        #status {
+            font-weight: 400;
+            font-size: 1.1em;
+            color: #8899a6; 
+            height: 1.2em;
+        }
+    </style>
+</head>
+<body>
+    <h1>HOOVER V1</h1>
+
+    <div id="speed-container">
+        <div id="speed-label">Acelerador: 70%</div>
+        <input type="range" min="30" max="100" value="70" id="speed-slider">
+    </div>
+    
+    <div id="d-pad-container">
+        <button class="d-pad-btn" id="btn-frente">&#8593;</button>
+        <button class="d-pad-btn" id="btn-esquerda">&#8592;</button>
+        <button class="d-pad-btn" id="btn-parar">&#10006;</button>
+        <button class="d-pad-btn" id="btn-direita">&#8594;</button>
+        <button class="d-pad-btn" id="btn-tras">&#8595;</button>
+    </div>
+
+    <h3 id="status">Status: Parado</h3>
+
+    
+    <script>
+        // Pega os elementos da página
+        const statusEl = document.getElementById('status');
+        const speedSlider = document.getElementById('speed-slider');
+        const speedLabel = document.getElementById('speed-label');
+        
+        // Objeto para guardar a velocidade atual
+        let controls = {
+            speed: 70
+        };
+
+        // --- LÓGICA DO SLIDER ---
+        // Atualiza o texto "Acelerador: XX%"
+        speedSlider.oninput = function() {
+            controls.speed = this.value;
+            speedLabel.innerText = `Acelerador: ${this.value}%`;
+        }
+        
+        // --- LÓGICA DOS BOTÕES ---
+        
+        // Função que envia o comando para o ESP
+        async function sendCommand(command) {
+            statusEl.innerText = `Status: ${command}`;
+            try {
+                // Novo endpoint: /control
+                // Envia o comando E a velocidade do slider
+                await fetch(`/control?cmd=${command}&speed=${controls.speed}`);
+            } catch (e) {
+                statusEl.innerText = "Erro de conexao!";
+            }
+        }
+        
+        // Adiciona os "escutadores" de evento para cada botão
+        const buttons = document.querySelectorAll('.d-pad-btn');
+        
+        buttons.forEach(button => {
+            let command = button.id.replace('btn-', ''); // "btn-frente" vira "frente"
+            
+            // Evento para QUANDO PRESSIONAR (PC ou Celular)
+            button.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                sendCommand(command);
+            });
+            button.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Impede o "click fantasma"
+                sendCommand(command);
+            });
+            
+            // Evento para QUANDO SOLTAR (PC ou Celular)
+            // Todos os botões, exceto o "parar", enviam "parar" ao soltar
+            if (command !== 'parar') {
+                button.addEventListener('mouseup', () => sendCommand('parar'));
+                button.addEventListener('touchend', () => sendCommand('parar'));
+            }
+        });
+
+        // Garantir que pare se o dedo "escorregar" para fora do botão
+        document.body.addEventListener('mouseup', () => sendCommand('parar'));
+        document.body.addEventListener('touchend', () => sendCommand('parar'));
+        
+    </script>
+</body>
+</html>
+)rawliteral";
+
+
+// --- [MODIFICADO] Lógica do Servidor ---
+
+// Esta função substitui a 'controlarMotores' antiga
+void executarComando(String cmd, int velocidade) {
+    // Mapeia a velocidade (30-100) para o PWM (0-1023)
+    // Usamos 30 como mínimo para dar força para o motor arrancar
+    int pwmSpeed = map(velocidade, 30, 100, (int)(VELOCIDADE_MAX * 0.3), VELOCIDADE_MAX);
+
+    if (cmd == "frente") {
+        // Motor Esquerdo FRENTE
+        analogWrite(PINO_IN1, pwmSpeed);
+        analogWrite(PINO_IN2, 0);
+        // Motor Direito FRENTE
+        analogWrite(PINO_IN3, pwmSpeed);
+        analogWrite(PINO_IN4, 0);
+    } 
+    else if (cmd == "tras") {
+        // Motor Esquerdo TRÁS
+        analogWrite(PINO_IN1, 0);
+        analogWrite(PINO_IN2, pwmSpeed);
+        // Motor Direito TRÁS
+        analogWrite(PINO_IN3, 0);
+        analogWrite(PINO_IN4, pwmSpeed);
+    }
+    else if (cmd == "esquerda") { // Girar no eixo
+        // Motor Esquerdo TRÁS
+        analogWrite(PINO_IN1, 0);
+        analogWrite(PINO_IN2, pwmSpeed);
+        // Motor Direito FRENTE
+        analogWrite(PINO_IN3, pwmSpeed);
+        analogWrite(PINO_IN4, 0);
+    }
+    else if (cmd == "direita") { // Girar no eixo
+        // Motor Esquerdo FRENTE
+        analogWrite(PINO_IN1, pwmSpeed);
+        analogWrite(PINO_IN2, 0);
+        // Motor Direito TRÁS
+        analogWrite(PINO_IN3, 0);
+        analogWrite(PINO_IN4, pwmSpeed);
+    }
+    else if (cmd == "parar") {
+        // Parar (Freio Ativo)
+        analogWrite(PINO_IN1, 0);
+        analogWrite(PINO_IN2, 0);
+        analogWrite(PINO_IN3, 0);
+        analogWrite(PINO_IN4, 0);
+    }
+}
+
+// --- Funções do Servidor Web ---
+
+// 1. O que fazer quando o usuário pede a página principal
+void handleRoot() {
+  server.send(200, "text/html", HTML_CONTROLE);
+}
+
+// 2. [NOVO] O que fazer quando um botão envia dados para /control
+void handleControl() {
+    String cmd = "parar";
+    int speed = 0;
+
+    // Pega os argumentos da URL (ex: /control?cmd=frente&speed=70)
+    if (server.hasArg("cmd")) {
+        cmd = server.arg("cmd");
+    }
+    if (server.hasArg("speed")) {
+        speed = server.arg("speed").toInt();
+    }
+
+    // Envia os valores para os motores
+    executarComando(cmd, speed);
+
+    // Responde ao navegador (qualquer resposta serve, 200 = OK)
+    server.send(200, "text/plain", "OK");
+}
+
+// 3. O que fazer se pedirem uma página que não existe
+void handleNotFound() {
+  server.send(404, "text/plain", "Nao encontrado");
+}
+
+
+// --- SETUP (Ligeiramente modificado) ---
+void setup() {
+  pinMode(PINO_IN1, OUTPUT);
+  pinMode(PINO_IN2, OUTPUT);
+  pinMode(PINO_IN3, OUTPUT);
+  pinMode(PINO_IN4, OUTPUT);
+  
+  analogWriteRange(VELOCIDADE_MAX);
+  executarComando("parar", 0); // Garante que comece parado
+
+  WiFi.softAP(ssid, password);
+
+  // Define as "rotas" do servidor
+  server.on("/", HTTP_GET, handleRoot); // Página principal
+  server.on("/control", HTTP_GET, handleControl); // [NOVO] Endpoint dos botões
+  server.onNotFound(handleNotFound);      // 404
+
+  // Inicia o servidor
+  server.begin();
+}
+
+// --- LOOP (SEM MUDANÇAS) ---
+void loop() {
+  // Permite que o servidor web processe novas requisições
+  server.handleClient();
+}
