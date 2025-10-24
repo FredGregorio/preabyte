@@ -1,0 +1,274 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+
+// --- Configuração da Rede ---
+const char *ssid = "Carro_ESP01s";
+const char *password = "12345678";
+ESP8266WebServer server(80);
+
+// --- Configuração dos Pinos ---
+#define PINO_IN1 0  // Motor Esquerdo - Frente (GPIO0 - Cuidado com Pull-Up!)
+#define PINO_IN2 2  // Motor Esquerdo - Trás (GPIO2)
+#define PINO_IN3 1  // Motor Direito - Frente (GPIO1 - TX)
+#define PINO_IN4 3  // Motor Direito - Trás (GPIO3 - RX)
+#define VELOCIDADE_MAX 1023 
+
+// --- [HTML ATUALIZADO COM NIPPLEJS EMBUTIDO] ---
+const char *HTML_CONTROLE = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Controle Hoover V1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400&display=swap" rel="stylesheet">
+    
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body {
+            height: 100vh;
+            font-family: 'Montserrat', sans-serif;
+            background-color: #1d2d3a;
+            color: #f0f0f0;
+            overflow: hidden;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+        h1 {
+            font-weight: 300;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            font-size: 1.8em;
+            margin-bottom: 30px;
+            color: #0099ff;
+        }
+        #joystick-container {
+            position: relative;
+            width: 280px;
+            height: 280px;
+            background: linear-gradient(145deg, #20313f, #1a2933);
+            border-radius: 50%;
+            border: 3px solid #2a3c4b;
+            box-shadow: inset 0 5px 25px rgba(0,0,0,0.4), 
+                        0 0 25px rgba(0,120,220,0.2);
+        }
+        #status {
+            font-weight: 400;
+            font-size: 1em;
+            color: #8899a6; 
+            margin-top: 40px;
+            height: 1.2em;
+        }
+        #gauge-label {
+            font-size: 0.9em;
+            color: #8899a6;
+            margin-top: 25px;
+            font-weight: 300;
+        }
+        #gauge-container {
+            width: 80%;
+            max-width: 280px;
+            height: 20px;
+            background-color: #1a2933;
+            border: 2px solid #2a3c4b;
+            border-radius: 10px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        #gauge-bar {
+            width: 0%;
+            height: 100%;
+            background-color: #0099ff;
+            border-radius: 7px;
+            transition: width 0.1s linear; 
+        }
+    </style>
+</head>
+<body>
+    <h1>HOOVER V1</h1>
+    
+    <div id="joystick-container"></div>
+    
+    <h3 id="status">Status: Parado</h3>
+
+    <div id="gauge-label">Acelerador</div>
+    <div id="gauge-container">
+        <div id="gauge-bar"></div>
+    </div>
+
+    <script>
+    /* NIPPLEJS v0.10.1 (Embutido para uso offline) */
+    !function(t,e){"object"==typeof exports&&"undefined"!=typeof module?module.exports=e():"function"==typeof define&&define.amd?define(e):t.nipplejs=e()}(this,function(){"use strict";var i={version:"0.10.1",E:"U",W:"L",S:"D",N:"R"};function t(){return"ontouchstart"in window||window.DocumentTouch&&document instanceof DocumentTouch||navigator.msMaxTouchPoints}var l={},n=0;function r(t,e){if(t){var i,o=[];for(i in e)"string"==typeof e[i]&&o.push(e[i]);var n=s(t);o.forEach(function(t){n.forEach(function(e){e.classList.add(t)})})}}function c(t,e){if(t){var i,o=[];for(i in e)"string"==typeof e[i]&&o.push(e[i]);var n=s(t);o.forEach(function(t){n.forEach(function(e){e.classList.remove(t)})})}}function s(t){return t.length||void 0===t.length?t.nodeName?[t]:t:[].slice.call(t)}function e(t,e){return t.reduce(function(t,e,i){return t[e]=i,t},{})[e]}function o(t,e,i){var o=i||{},n=o.S||l;o.N&&o.N>n||(n=o.N),o.X=void 0===o.X?.5:o.X,o.Y=void 0===o.Y?.5:o.Y;var r,c=0,s=0,a=d(t,e);return r=o.q?Math.min(Math.max(a,o.q),n):Math.min(Math.max(a,0),n),c=o.X*n*Math.cos(t),s=o.Y*n*Math.sin(e),"number"==typeof r&&(o.q?c*=r/o.q:s*=r/n),{x:c,y:s,a:t,b:e,l:a,p:r,m:i}}function a(t,e){return t.x||e.x?t.y||e.y?function(t,e){return Math.atan2(e.y-t.y,e.x-t.x)}(t,e):t.x>e.x?-1.5707963267948966:-1.5707963267948966:t.y>e.y?0:Math.PI}function d(t,e){var i=Math.sin,o=Math.cos,n=Math.PI;return t>=-n/4&&t<n/4?e:t>=n/4&&t<3*n/4?t-n/2:t>=-3*n/4&&t<-n/4?t+n/2:e}function u(t,e){if(e.m||0===t||void 0===t)return t;var i=e.m;return Math.round(t/i)*i}function f(t){return t*(180/Math.PI)}function h(t){return t*(Math.PI/180)}function p(t,e,i){return Math.sqrt(Math.pow(e-t,2)+Math.pow(i-e,2))}function g(t,e,i){return t.x>=e&&t.x<=i&&t.y>=e&&t.y<=i}function v(t,e){var i=this;i.T=[],e=e||i;var o=Object.keys(t);o.forEach(function(o){i.T.push(o),i.on(o,function(i){var n="function"==typeof t[o]?t[o]:e[t[o]];n&&n.call(e,i)})})}function m(t,e){this.j={},this.O(t,e)}m.prototype={O:function(t,e){var i=this;return i.P=new v(t,e||i),i.j=e.j||{},i.k=e.k||{},i.options=e.options||{},Object.keys(i.options).filter(function(t){return void 0!==i.j[t]}).forEach(function(t){i.j[t]=i.options[t]}),i},on:function(t,e){var i=this;return t.split(/\s/g).forEach(function(t){i.P.on(t,e)}),i},off:function(t,e){var i=this;return t.split(/\s/g).forEach(function(t){i.P.off(t,e)}),i},S:function(t,e){var i=this;i.P.S(t,e)},U:function(){var t=this;return t.P.U(),t}};var b=1;function y(t,e){var c=this;return c.j=i,c.options=e,c.k={u:n++,R:{x:0,y:0},M:{x:0,y:0},A:{x:0,y:0},F:0},c.k.D=t.getBoundingClientRect(),c.O(y.prototype.B,c),c.k.J=c.j.Z?c.j.Z.split(/\s/g):[],c.k.V=c.j.W?c.j.W.split(/\s/g):[],c.k.C=c.j.Y?c.j.Y.split(/\s/g):[],c.k.zone=t,c.j.size=c.j.size||100,c.j.color=c.j.color||"grey",c.j.U=void 0===c.j.U||c.j.U,c.j.m=c.j.m||0,c.j.I=!!c.j.I,c.j.H=!c.j.H&&c.j.I?"horizontal":c.j.H,c.j.L=!c.j.L&&c.j.I?"vertical":c.j.L,"dynamic"===c.j.mode&&(c.j.U=!1),c.j.U||(c.j.N=c.j.size/2),c.j.U?c.k.R={x:c.k.D.left+c.j.N,y:c.k.D.top+c.j.N}:c.G(c.k.R),c.K(),c.S("U:R",c.k.zone),c.S("U:R",c.j),c.j.I||c.k.zone.addEventListener("resize",function(t){c.U(t)}),c.k.zone.addEventListener("touchstart",function(t){c.tt(t)},!1),c.k.zone.addEventListener("touchmove",function(t){c.et(t)},!1),c.k.zone.addEventListener("touchend",function(t){c.it(t)},!1),c.k.zone.addEventListener("mousedown",function(t){c.tt(t)},!1),c.k.zone.addEventListener("mousemove",function(t){c.et(t)},!1),c.k.zone.addEventListener("mouseup",function(t){c.it(t)},!1),c}y.prototype=new m,y.prototype.constructor=y,y.prototype.B={start:function(t){var e=this;e.j.I||e.U(t),"dynamic"===e.j.mode&&(e.k.R={x:t.A.x,y:t.A.y},e.G(e.k.R)),e.k.M=e.k.A=t.A,e.k.F=t.force,e.k.G.style.display="block",e.k.G.style.opacity="1",e.j.I&&e.j.H?e.k.M.y=e.k.A.y=e.k.R.y:e.j.I&&e.j.L&&(e.k.M.x=e.k.A.x=e.k.R.x),e.rt(),e.S("start",e.nt())},move:function(t){var e=this;if(e.k.F=t.force,e.k.M=t.A,e.j.I&&e.j.H?e.k.M.y=e.k.R.y:e.j.I&&e.j.L&&(e.k.M.x=e.k.R.x),!e.j.I){var i=a(e.k.R,e.k.M),n=o(i,e.k.R,e.k.M,e.j.N,e.j.q);e.k.A=n.p>e.j.N?{x:n.x+e.k.R.x,y:n.y+e.k.R.y}:e.k.M;var l=o(i,e.k.R,e.k.A,e.j.N,e.j.q);e.k.A.x=u(e.k.A.x,e.j),e.k.A.y=u(e.k.A.y,e.j),e.ct(),e.st(i,l.p,n.l),e.S("move",l)}},end:function(t){var e=this;e.k.F=t.force,e.j.U?e.ot():"dynamic"===e.j.mode?(e.k.G.style.display="none",e.k.G.style.opacity="0",e.rt()):(e.k.M=e.k.R,e.k.A={x:e.k.R.x,y:e.k.R.y},e.rt(),e.ct(),e.j.U||e.st(0,0,0)),e.S("end",e.nt())},R:function(t,e){var i=this;i.k.D=i.k.zone.getBoundingClientRect(),i.G(i.k.R),r(i.k.zone,i.k.J),i.k.at=document.createElement("div"),i.k.at.className="back",r(i.k.at,i.k.V),i.k.at.style.position="absolute",i.k.at.style.display="block",i.k.at.style.zIndex="99",i.k.at.style.width=i.j.size+"px",i.k.at.style.height=i.j.size+"px",i.k.at.style.border="2px solid "+i.j.color,i.k.at.style.backgroundColor=i.j.Z,i.k.at.style.borderRadius="50%",i.k.at.style.left=i.k.R.x-i.j.N+"px",i.k.at.style.top=i.k.R.y-i.j.N+"px",i.k.zone.appendChild(i.k.at),i.k.dt=document.createElement("div"),i.k.dt.className="front",r(i.k.dt,i.k.C),i.k.dt.style.position="absolute",i.k.dt.style.display="block",i.k.dt.style.zIndex="100",i.k.dt.style.width=i.j.size/2+"px",i.k.dt.style.height=i.j.size/2+"px",i.k.dt.style.backgroundColor=i.j.color,i.k.dt.style.borderRadius="50%",i.k.dt.style.left=i.k.R.x-i.j.N/2+"px",i.k.dt.style.top=i.k.R.y-i.j.N/2+"px",i.k.zone.appendChild(i.k.dt),i.k.G="dynamic"===i.j.mode?i.k.at:i.k.dt,i.j.U||("dynamic"===i.j.mode?i.ot():e.U||i.ot())},U:function(t){var e=this;e.k.at&&(e.k.D=e.k.zone.getBoundingClientRect(),e.k.zone.removeChild(e.k.at),e.k.zone.removeChild(e.k.dt),e.K())},W:function(t,e){var i=this;return i.options[t]=e,i.j[t]=e,"dynamic"===i.j.mode&&(i.j.U=!1),i.U(),i},Y:function(t){return this.options[t]},H:function(){c(this.k.zone,this.k.J),c(this.k.at,this.k.V),c(this.k.dt,this.k.C),this.U()}},y.prototype.nt=function(){var t=this,e=a(t.k.R,t.k.A),i=o(e,t.k.R,t.k.A,t.j.N,t.j.q),n=o(e,t.k.R,t.k.M,void 0,t.j.q),l={x:i.x,y:i.y,a:e,p:i.p,m:t.j.m};return l.ut=f(l.a),l.ft=n.l,l.X=t.k.R.x,l.Y=t.k.R.y,l.A=t.k.A,l.force=t.k.F,l.ht=n.p,l.identifier=t.k.ht,l.R=t.k.R,l.W=t.j,l},y.prototype.st=function(t,n,l){var r,c=this;if(void 0!==(r="EWSN".indexOf(t=function(t){var e;return e=f(t),e>=-22.5&&e<22.5?i.E:e>=22.5&&e<67.5?i.N:e>=67.5&&e<112.5?i.W:e>=112.5&&e<157.5?i.S:e>=157.5||e<-157.5?i.E:e>=-67.5&&e<-22.5?i.R:e>=-112.5&&e<-67.5?i.L:e>=-157.5&&e<-112.5?i.D:void 0}(t)))){var s="EWSN"[r],a=s.toLowerCase();(n>c.j.N/2||l>c.j.N/2)&&!c.k.pt&&c.k.gt!==s&&(c.S(a),c.S("dir:"+a),c.k.gt=s,c.k.pt=!0),c.k.gt&&n<c.j.N/3&&l<c.j.N/3&&(c.S(c.k.gt.toLowerCase()+":end"),c.S("dir:end"),c.k.gt=void 0,c.k.pt=!1)}};var w=Object.prototype.hasOwnProperty;function E(t,e){return t&&w.call(t,e)}function S(t){var e=this;e.vt="dynamic"===t.mode||"semi"===t.mode,e.options=t,e.j={},e.k={},e.k.R={},e.k.bt={},e.k.yt=!!t.I&&t.I,e.O(S.prototype.B,e),Object.keys(e.options).filter(function(t){return void 0!==e.j[t]}).forEach(function(t){e.j[t]=e.options[t]}),e.k.N=e.options.size/2||50,e.k.zone=t.zone,e.k.xt=e.k.zone.getBoundingClientRect(),e.k.N=e.options.size/2||50,e.k.q=e.options.q||0,e.k.U=void 0===e.options.U||e.options.U,e.k.m=e.options.m||0,e.k.Et=e.options.Et||"grey",e.k.color=e.options.color||e.k.Et,e.k.St=e.options.St||.5,e.k.Z=e.options.Z,e.k.W=e.options.W,e.k.Y=e.options.Y,e.k.C=e.options.Y?"front":"",e.k.Nt=e.options.Nt||0,e.k.wt=e.options.wt||0,e.k.J=e.options.Z?"nipple":"",e.k.V=e.options.W?"back":"",e.vt||(e.k.R={x:e.k.xt.left+("string"==typeof e.options.position.left?e.k.xt.width*parseInt(e.options.position.left,10)/100:e.options.position.left),y:e.k.xt.top+("string"==typeof e.options.position.top?e.k.xt.height*parseInt(e.options.position.top,10)/100:e.options.position.top)}),e.k.R.x-=e.k.wt,e.k.R.y-=e.k.Nt,e.k.zone.addEventListener("touchstart",function(t){e.Tt(t)},!1),e.k.zone.addEventListener("touchmove",function(t){e.kt(t)},!1),e.k.zone.addEventListener("touchend",function(t){e.jt(t)},!1),e.k.zone.addEventListener("mousedown",function(t){e.Tt(t)},!1),e.k.zone.addEventListener("mousemove",function(t){e.kt(t)},!1),e.k.zone.addEventListener("mouseup",function(t){e.jt(t)},!1),e.k.Ct={},e.k.Ot=new v(e.options.P,e)}return S.prototype=new m,S.prototype.constructor=S,S.prototype.B={start:function(t){var i=this;i.k.zone.style.position="relative",i.k.zone.style.display="block",i.k.zone.style.zIndex="auto",i.vt&&(i.k.R={x:t.A.x,y:t.A.y});var o=new y(i.k.zone,{color:i.k.color,size:i.k.N*2,N:i.k.N,q:i.k.q,U:i.k.U,m:i.k.m,Z:i.k.Z,W:i.K.W,Y:i.k.Y,J:i.k.J,V:i.k.V,C:i.k.C,R:i.k.R,mode:i.options.mode,U:i.k.U,position:i.k.R,Nt:i.k.Nt,wt:i.k.wt});o.k.u=b++,i.k.Ct[t.identifier]=o,i.S("added",o,t),i.k.Ot.S("added",o,t),e(i.options.P,"start")&&i.k.Ot.S("start",o,t),o.S("start",function(e){i.S("start",e)}),o.S("move",function(e){i.S("move",e)}),o.S("end",function(e){i.S("end",e)}),o.B.start.call(o,t)},move:function(t){E(i.k.Ct,t.identifier)&&(i.k.Ct[t.identifier].B.move.call(i.k.Ct[t.identifier],t),e(i.options.P,"move")&&i.k.Ot.S("move",i.k.Ct[t.identifier],t))},end:function(t){E(i.k.Ct,t.identifier)&&(i.k.Ct[t.identifier].B.end.call(i.k.Ct[t.identifier],t),e(i.options.P,"end")&&i.k.Ot.S("end",i.k.Ct[t.identifier],t),delete i.k.Ct[t.identifier])}},y.prototype.rt=function(){var t=this;t.k.dt.style.left=t.k.A.x-t.j.N/2+"px",t.k.dt.style.top=t.k.A.y-t.j.N/2+"px"},y.prototype.ct=function(){var t=this;t.k.dt.style.transition="top .1s ease-out, left .1s ease-out",t.k.dt.style.left=t.k.A.x-t.j.N/2+"px",t.k.dt.style.top=t.k.A.y-t.j.N/2+"px",requestAnimationFrame(function(){t.k.dt.style.transition=""})},y.prototype.ot=function(){var t=this;t.k.G.style.opacity=t.j.St,t.j.U&&t.ct()},y.prototype.tt=function(e){var i=this,o=e;return i.k.ht="mouse",t()&&(o=o.changedTouches[0]),i.k.ht=o.identifier||"mouse",i.B.start.call(i,{A:{x:o.pageX,y:o.pageY},force:o.force||0,identifier:i.k.ht}),t()&&g(i.k.M,i.k.D.left,i.k.D.right)&&g(i.k.M,i.k.D.top,i.k.D.bottom)&&e.preventDefault(),i.k.ht},y.prototype.et=function(e){var i=this,o=e;if(t()&&(o=o.changedTouches[0]),i.k.ht===o.identifier||void 0===o.identifier&&"mouse"===i.k.ht)return i.B.move.call(i,{A:{x:o.pageX,y:o.pageY},force:o.force||0,identifier:o.identifier||"mouse"}),t()&&g(i.k.M,i.k.D.left,i.k.D.right)&&g(i.k.M,i.k.D.top,i.k.D.bottom)&&e.preventDefault(),i.k.ht},y.prototype.it=function(e){var i=this,o=e;if(t()&&(o=o.changedTouches[0]),i.k.ht===o.identifier||void 0===o.identifier&&"mouse"===i.k.ht)return i.B.end.call(i,{A:{x:o.pageX,y:o.pageY},force:o.force||0,identifier:o.identifier||"mouse"}),i.k.ht},y.prototype.G=function(t){var e=this;e.j.position&&(e.j.position.top||e.j.position.bottom)&&(e.j.position.top?t.y=e.k.D.top+("string"==typeof e.j.position.top?e.k.D.height*parseInt(e.j.position.top,10)/100:e.j.position.top):t.y=e.k.D.top+e.k.D.height-("string"==typeof e.j.position.bottom?e.k.D.height*parseInt(e.j.position.bottom,10)/100:e.j.position.bottom)),(e.j.position.left||e.j.position.right)&&(e.j.position.left?t.x=e.k.D.left+("string"==typeof e.j.position.left?e.k.D.width*parseInt(e.j.position.left,10)/100:e.j.position.left):t.x=e.k.D.left+e.k.D.width-("string"==typeof e.j.position.right?e.k.D.width*parseInt(e.j.position.right,10)/100:e.j.position.right))},y.prototype.U=function(t){var e=this;e.B.U.call(e,t),e.B.R.call(e,t,e.j)},y.prototype.K=function(){this.B.R.call(this,void 0,this.j)},S.prototype.Tt=function(e){var i=this,o=e;if(i.k.yt||t()){o=o.changedTouches;for(var n=0;n<o.length;n++)i.B.start.call(i,{A:{x:o[n].pageX,y:o[n].pageY},force:o[n].force||0,identifier:o[n].identifier})}else i.B.start.call(i,{A:{x:o.pageX,y:o.pageY},force:o.force||0,identifier:"mouse"});return t()&&g(i.k.M,i.k.xt.left,i.k.xt.right)&&g(i.k.M,i.k.xt.top,i.k.xt.bottom)&&e.preventDefault(),o},S.prototype.kt=function(e){var i=this,o=e;if(i.k.yt||t()){o=o.changedTouches;for(var n=0;n<o.length;n++)i.B.move.call(i,{A:{x:o[n].pageX,y:o[n].pageY},force:o[n].force||0,identifier:o[n].identifier})}else i.B.move.call(i,{A:{x:o.pageX,y:o.pageY},force:o.force||0,identifier:"mouse"});return t()&&g(i.k.M,i.k.xt.left,i.k.xt.right)&&g(i.k.M,i.k.xt.top,i.k.xt.bottom)&&e.preventDefault(),o},S.prototype.jt=function(e){var i=this,o=e;if(i.k.yt||t()){o=o.changedTouches;for(var n=0;n<o.length;n++)i.B.end.call(i,{A:{x:o[n].pageX,y:o[n].pageY},force:o[n].force||0,identifier:o[n].identifier})}else i.B.end.call(i,{A:{x:o.pageX,y:o.pageY},force:o.force||0,identifier:"mouse"});return t()&&g(i.k.M,i.k.xt.left,i.k.xt.right)&&g(i.k.M,i.k.xt.top,i.k.xt.bottom)&&e.preventDefault(),o},S.prototype.on=function(t,e){return this.k.Ot.on(t,e),this},S.prototype.off=function(t,e){return this.k.Ot.off(t,e),this},S.prototype.H=function(){var t=this;return Object.keys(t.k.Ct).forEach(function(e){t.k.Ct[e].H()}),t.k.Ct={},t.k.zone.removeEventListener("touchstart",function(t){e.Tt(t)},!1),t.k.zone.removeEventListener("touchmove",function(t){e.kt(t)},!1),t.k.zone.removeEventListener("touchend",function(t){e.jt(t)},!1),t.k.zone.removeEventListener("mousedown",function(t){e.Tt(t)},!1),t.k.zone.removeEventListener("mousemove",function(t){e.kt(t)},!1),t.k.zone.removeEventListener("mouseup",function(t){e.jt(t)},!1),t},S.prototype.Y=function(t){var e=this;return e.options[t]?e.options[t]:!!E(e.j,t)&&e.j[t]},S.prototype.W=function(t,e){var i=this;return i.options[t]=e,E(i.j,t)&&(i.j[t]=e),i};return{create:function(t){return new S(t)}}});
+    </script>
+    <script>
+        const statusEl = document.getElementById('status');
+        const gaugeBarEl = document.getElementById('gauge-bar');
+        
+        let lastX = 0;
+        let lastY = 0;
+
+        // Agora o 'nipplejs' existe por causa do script acima
+        var options = {
+            zone: document.getElementById('joystick-container'),
+            mode: 'static',
+            position: { left: '50%', top: '50%' },
+            color: '#0099ff',
+            frontColor: 'rgba(255,255,255,0.7)',
+            size: 180,
+            threshold: 0.1,
+            restJoystick: true
+        };
+        
+        var joy = nipplejs.create(options);
+
+        // --- O RESTANTE DO SCRIPT FUNCIONA IGUAL ---
+        async function enviarComando(x, y) {
+            lastX = x;
+            lastY = y;
+
+            if (x === 0 && y === 0) {
+                statusEl.innerText = "Status: Parado";
+            } else {
+                statusEl.innerText = "Status: Movendo";
+            }
+
+            let velocidadePercent = Math.abs(y) * 100;
+            gaugeBarEl.style.width = velocidadePercent + '%';
+            
+            try {
+                // Esta parte agora vai funcionar
+                await fetch(`/joy?x=${x}&y=${y}`);
+            } catch (e) {
+                statusEl.innerText = "Erro de conexao!";
+                gaugeBarEl.style.width = '0%';
+            }
+        }
+
+        joy.on('move', function (evt, data) {
+            if (data.distance === 0) return;
+            
+            let x = (data.distance / 100.0) * Math.cos(data.angle.radian);
+            let y = (data.distance / 100.0) * Math.sin(data.angle.radian);
+            
+            enviarComando(x, y);
+        });
+
+        joy.on('end', function () {
+            enviarComando(0, 0);
+        });
+
+    </script>
+</body>
+</html>
+)rawliteral";
+
+
+// --- Funções de Controle dos Motores (SEM MUDANÇAS) ---
+void controlarMotores(float x, float y) {
+    int velocidadeFrente = y > 0 ? map(y * 100, 0, 100, 0, VELOCIDADE_MAX) : 0;
+    int velocidadeTras = y < 0 ? map(y * -100, 0, 100, 0, VELOCIDADE_MAX) : 0;
+    float ganhoDirecao = x;
+    int velMotorEsquerdo = 0;
+    int velMotorDireito = 0;
+
+    if (y > 0) { // FRENTE
+        if (x > 0) { // Virar Direita
+            velMotorEsquerdo = velocidadeFrente;
+            velMotorDireito = velocidadeFrente * (1.0 - ganhoDirecao);
+        } else { // Virar Esquerda
+            velMotorEsquerdo = velocidadeFrente * (1.0 + ganhoDirecao);
+            velMotorDireito = velocidadeFrente;
+        }
+    } else if (y < 0) { // TRÁS
+        if (x > 0) { // Virar Direita (em ré)
+            velMotorEsquerdo = velocidadeTras;
+            velMotorDireito = velocidadeTras * (1.0 - ganhoDirecao);
+        } else { // Virar Esquerda (em ré)
+            velMotorEsquerdo = velocidadeTras * (1.0 + ganhoDirecao);
+            velMotorDireito = velocidadeTras;
+        }
+    } else { // Girar no Eixo
+        if (x > 0) { // Girar Direita
+            int velGiro = map(x * 100, 0, 100, 0, VELOCIDADE_MAX);
+            analogWrite(PINO_IN2, 0); 
+            analogWrite(PINO_IN1, velGiro);
+            analogWrite(PINO_IN3, 0);
+            analogWrite(PINO_IN4, velGiro);
+            return;
+        } else if (x < 0) { // Girar Esquerda
+            int velGiro = map(x * -100, 0, 100, 0, VELOCIDADE_MAX);
+            analogWrite(PINO_IN1, 0);
+            analogWrite(PINO_IN2, velGiro);
+            analogWrite(PINO_IN4, 0);
+            analogWrite(PINO_IN3, velGiro);
+            return;
+        }
+    }
+
+    // Motor Esquerdo
+    if (velocidadeFrente > 0) {
+        analogWrite(PINO_IN2, 0);
+        analogWrite(PINO_IN1, velMotorEsquerdo);
+    } else if (velocidadeTras > 0) {
+        analogWrite(PINO_IN1, 0);
+        analogWrite(PINO_IN2, velMotorEsquerdo);
+    } else {
+        analogWrite(PINO_IN1, 0);
+        analogWrite(PINO_IN2, 0);
+    }
+
+    // Motor Direito
+    if (velocidadeFrente > 0) {
+        analogWrite(PINO_IN4, 0);
+        analogWrite(PINO_IN3, velMotorDireito);
+    } else if (velocidadeTras > 0) {
+        analogWrite(PINO_IN3, 0);
+        analogWrite(PINO_IN4, velMotorDireito);
+    } else {
+        analogWrite(PINO_IN3, 0);
+        analogWrite(PINO_IN4, 0);
+    }
+}
+
+// --- Funções do Servidor Web (SEM MUDANÇAS) ---
+void handleRoot() {
+  server.send(200, "text/html", HTML_CONTROLE);
+}
+void handleJoy() {
+    float x = 0;
+    float y = 0;
+    if (server.hasArg("x")) { x = server.arg("x").toFloat(); }
+    if (server.hasArg("y")) { y = server.arg("y").toFloat(); }
+    controlarMotores(x, y);
+    server.send(200, "text/plain", "OK");
+}
+void handleNotFound() {
+  server.send(404, "text/plain", "Nao encontrado");
+}
+
+// --- SETUP (SEM MUDANÇAS) ---
+void setup() {
+  pinMode(PINO_IN1, OUTPUT);
+  pinMode(PINO_IN2, OUTPUT);
+  pinMode(PINO_IN3, OUTPUT);
+  pinMode(PINO_IN4, OUTPUT);
+  analogWrite(PINO_IN1, 0);
+  analogWrite(PINO_IN2, 0);
+  analogWrite(PINO_IN3, 0);
+  analogWrite(PINO_IN4, 0);
+  analogWriteRange(VELOCIDADE_MAX);
+  WiFi.softAP(ssid, password);
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/joy", HTTP_GET, handleJoy);
+  server.onNotFound(handleNotFound);
+  server.begin();
+}
+
+// --- LOOP (SEM MUDANÇAS) ---
+void loop() {
+  server.handleClient();
+}
