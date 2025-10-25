@@ -1,0 +1,341 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+
+// --- Configuração da Rede ---
+const char *ssid = "Carro_ESP01s";
+const char *password = "12345678";
+ESP8266WebServer server(80);
+
+// --- Configuração dos Pinos (Sem Mudança) ---
+#define PINO_IN1 0  // Motor Esquerdo - Frente (GPIO0 - Cuidado com Pull-Up!)
+#define PINO_IN2 2  // Motor Esquerdo - Trás (GPIO2)
+#define PINO_IN3 1  // Motor Direito - Frente (GPIO1 - TX)
+#define PINO_IN4 3  // Motor Direito - Trás (GPIO3 - RX)
+#define VELOCIDADE_MAX 1023 
+
+// --- [NOVO HTML] - Slider PWM Simples ---
+const char *HTML_CONTROLE = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Controle Hoover V1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <style>
+        * {
+            box-sizing: border-box; margin: 0; padding: 0;
+            user-select: none; -webkit-user-select: none;
+            -webkit-tap-highlight-color: rgba(0,0,0,0);
+        }
+        html, body {
+            height: 100vh; font-family: Arial, sans-serif;
+            background-color: #1d2d3a; color: #f0f0f0;
+            overflow: hidden;
+            display: flex; flex-direction: column;
+            justify-content: space-between; align-items: center;
+        }
+        h1 {
+            font-weight: 300; letter-spacing: 3px;
+            font-size: 1.8em; color: #0099ff; padding-top: 30px;
+        }
+        #status {
+            font-weight: 400; font-size: 1.1em; color: #8899a6;
+            height: 1.2em; padding-bottom: 30px;
+        }
+
+        /* --- Layout Principal (Slider e Botões lado a lado) --- */
+        #control-area {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            width: 100%;
+            height: 300px; /* Altura da área de controle */
+        }
+
+        /* --- Estilo dos Botões de Direção --- */
+        #direction-buttons {
+            display: flex;
+            flex-direction: column;
+            width: 130px;
+            height: 100%;
+            justify-content: space-around;
+        }
+        .turn-btn {
+            height: 120px;
+            font-size: 3em;
+            background: #2a3c4b;
+            border: 2px solid #3c5a75;
+            border-radius: 20px;
+            color: white;
+            touch-action: manipulation;
+        }
+        .turn-btn:active {
+            background: #0099ff;
+            border-color: white;
+            transform: scale(0.95);
+        }
+
+        /* --- Estilo do Slider de Aceleração (Vertical) --- */
+        #throttle-container {
+            width: 130px;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #1a2933;
+            border: 2px solid #2a3c4b;
+            border-radius: 20px;
+        }
+        /* O "truque" para fazer o slider ficar vertical */
+        #throttle-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 250px; /* Comprimento do slider */
+            height: 40px; /* Largura da "trilha" */
+            background: #333;
+            border-radius: 20px;
+            outline: none;
+            transform: rotate(-90deg); /* Gira 90 graus */
+        }
+        /* Estilo do "pino" do slider */
+        #throttle-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 60px; /* Largura do pino */
+            height: 60px; /* Altura do pino */
+            background: #0099ff;
+            border-radius: 50%;
+            border: 2px solid white;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>HOOVER V1</h1>
+
+    <div id="control-area">
+        <div id="direction-buttons">
+            <button class="turn-btn" id="btn-left">&#8634;</button> <button class="turn-btn" id="btn-right">&#8635;</button> </div>
+
+        <div id="throttle-container">
+            <input type="range" min="-100" max="100" value="0" id="throttle-slider">
+        </div>
+    </div>
+
+    <h3 id="status">Status: Parado</h3>
+
+    <script>
+        // Pega os elementos
+        const statusEl = document.getElementById('status');
+        const throttle = document.getElementById('throttle-slider');
+        const btnLeft = document.getElementById('btn-left');
+        const btnRight = document.getElementById('btn-right');
+
+        // Guarda o estado atual dos controles
+        let currentY = 0.0; // Aceleração (do slider)
+        let currentX = 0.0; // Direção (dos botões)
+
+        // Função principal que envia os dados para o ESP
+        async function sendCommand() {
+            // Atualiza o Status visual
+            if (currentY > 0) statusEl.innerText = "Status: Frente";
+            else if (currentY < 0) statusEl.innerText = "Status: Trás";
+            else if (currentX != 0) statusEl.innerText = "Status: Girando";
+            else statusEl.innerText = "Status: Parado";
+            
+            try {
+                // Envia os dados para o endpoint /joy (mesmo da versão joystick)
+                // O ESP já sabe o que fazer com X e Y
+                await fetch(`/joy?x=${currentX}&y=${currentY}`);
+            } catch (e) {
+                statusEl.innerText = "Erro de conexao!";
+            }
+        }
+
+        // --- Eventos do Slider de Aceleração ---
+        
+        // Quando o slider é MOVIDO
+        throttle.oninput = function() {
+            // Converte o valor do slider (de -100 a 100) para (-1.0 a 1.0)
+            currentY = this.value / 100.0;
+            sendCommand();
+        };
+
+        // Quando o slider é SOLTO
+        throttle.onchange = function() {
+            // Retorna ao centro (0)
+            this.value = 0;
+            currentY = 0.0;
+            sendCommand();
+        };
+
+        // --- Eventos dos Botões de Direção ---
+
+        // Botão Esquerda Pressionado
+        btnLeft.onmousedown = function() { currentX = -1.0; sendCommand(); }
+        btnLeft.ontouchstart = function(e) { e.preventDefault(); currentX = -1.0; sendCommand(); }
+        
+        // Botão Esquerda Solto
+        btnLeft.onmouseup = function() { currentX = 0.0; sendCommand(); }
+        btnLeft.ontouchend = function() { currentX = 0.0; sendCommand(); }
+
+        // Botão Direita Pressionado
+        btnRight.onmousedown = function() { currentX = 1.0; sendCommand(); }
+        btnRight.ontouchstart = function(e) { e.preventDefault(); currentX = 1.0; sendCommand(); }
+
+        // Botão Direita Solto
+        btnRight.onmouseup = function() { currentX = 0.0; sendCommand(); }
+        btnRight.ontouchend = function() { currentX = 0.0; sendCommand(); }
+
+        // Medida de segurança: Se o dedo sair da tela, para tudo
+        document.body.ontouchend = function() {
+            currentX = 0.0;
+            throttle.value = 0; // Reseta o slider visualmente
+            currentY = 0.0;
+            sendCommand();
+        }
+
+    </script>
+</body>
+</html>
+)rawliteral";
+
+
+// --- [MESMA LÓGICA DE ANTES] ---
+// A função de controlar motores não precisa mudar!
+// Ela já sabe o que fazer com os valores 'x' e 'y'.
+void controlarMotores(float x, float y) {
+    // x -> Direção (dos botões: -1, 0, ou 1)
+    // y -> Aceleração (do slider: -1.0 a 1.0)
+
+    int velocidadeFrente = y > 0 ? map(y * 100, 0, 100, 0, VELOCIDADE_MAX) : 0;
+    int velocidadeTras = y < 0 ? map(y * -100, 0, 100, 0, VELOCIDADE_MAX) : 0;
+    float ganhoDirecao = x;
+    int velMotorEsquerdo = 0;
+    int velMotorDireito = 0;
+
+    if (y > 0) { // FRENTE
+        if (x > 0) { // Virar Direita
+            velMotorEsquerdo = velocidadeFrente;
+            velMotorDireito = velocidadeFrente * (1.0 - ganhoDirecao);
+        } else if (x < 0) { // Virar Esquerda
+            velMotorEsquerdo = velocidadeFrente * (1.0 + ganhoDirecao);
+            velMotorDireito = velocidadeFrente;
+        } else { // Apenas Frente
+            velMotorEsquerdo = velocidadeFrente;
+            velMotorDireito = velocidadeFrente;
+        }
+    } else if (y < 0) { // TRÁS
+        if (x > 0) { // Virar Direita (em ré)
+            velMotorEsquerdo = velocidadeTras;
+            velMotorDireito = velocidadeTras * (1.0 - ganhoDirecao);
+        } else if (x < 0) { // Virar Esquerda (em ré)
+            velMotorEsquerdo = velocidadeTras * (1.0 + ganhoDirecao);
+            velMotorDireito = velocidadeTras;
+        } else { // Apenas Trás
+            velMotorEsquerdo = velocidadeTras;
+            velMotorDireito = velocidadeTras;
+        }
+    } else { // PARADO (y == 0)
+        // "Girar no Eixo"
+        if (x > 0) { // Girar Direita
+            int velGiro = (int)(VELOCIDADE_MAX * 0.8); // 80% velocidade
+            analogWrite(PINO_IN2, 0); 
+            analogWrite(PINO_IN1, velGiro);
+            analogWrite(PINO_IN3, 0);
+            analogWrite(PINO_IN4, velGiro);
+            return;
+        } else if (x < 0) { // Girar Esquerda
+            int velGiro = (int)(VELOCIDADE_MAX * 0.8); // 80% velocidade
+            analogWrite(PINO_IN1, 0);
+            analogWrite(PINO_IN2, velGiro);
+            analogWrite(PINO_IN4, 0);
+            analogWrite(PINO_IN3, velGiro);
+            return;
+        }
+    }
+
+    // Aplica os comandos
+    // Motor Esquerdo
+    if (velMotorEsquerdo > 0) {
+        analogWrite(PINO_IN2, 0);
+        analogWrite(PINO_IN1, velMotorEsquerdo);
+    } else if (velMotorEsquerdo < 0) { // Corrigindo lógica para TRÁS
+        analogWrite(PINO_IN1, 0);
+        analogWrite(PINO_IN2, -velMotorEsquerdo); // Usa valor absoluto
+    } else if (velocidadeFrente > 0 || velocidadeTras > 0) { // Se estava andando e agora é 0
+        analogWrite(PINO_IN1, 0);
+        analogWrite(PINO_IN2, 0);
+    } else if (y == 0 && x == 0) { // Parada explícita
+        analogWrite(PINO_IN1, 0);
+        analogWrite(PINO_IN2, 0);
+    }
+
+    // Motor Direito
+    if (velMotorDireito > 0) {
+        analogWrite(PINO_IN4, 0);
+        analogWrite(PINO_IN3, velMotorDireito);
+    } else if (velMotorDireito < 0) { // Corrigindo lógica para TRÁS
+        analogWrite(PINO_IN3, 0);
+        analogWrite(PINO_IN4, -velMotorDireito); // Usa valor absoluto
+    } else if (velocidadeFrente > 0 || velocidadeTras > 0) { // Se estava andando e agora é 0
+        analogWrite(PINO_IN3, 0);
+        analogWrite(PINO_IN4, 0);
+    } else if (y == 0 && x == 0) { // Parada explícita
+        analogWrite(PINO_IN3, 0);
+        analogWrite(PINO_IN4, 0);
+    }
+
+    // Se Y=0 e X=0, garantir parada (redundância)
+    if(y == 0 && x == 0){
+        analogWrite(PINO_IN1, 0);
+        analogWrite(PINO_IN2, 0);
+        analogWrite(PINO_IN3, 0);
+        analogWrite(PINO_IN4, 0);
+    }
+}
+
+
+// --- Funções do Servidor Web (Lógica do Joystick) ---
+void handleJoy() {
+    float x = 0;
+    float y = 0;
+    if (server.hasArg("x")) { x = server.arg("x").toFloat(); }
+    if (server.hasArg("y")) { y = server.arg("y").toFloat(); }
+    controlarMotores(x, y);
+    server.send(200, "text/plain", "OK");
+}
+
+void handleRoot() {
+  server.send(200, "text/html", HTML_CONTROLE);
+}
+
+void handleNotFound() {
+  server.send(404, "text/plain", "Nao encontrado");
+}
+
+
+// --- SETUP (Lógica do Joystick) ---
+void setup() {
+  pinMode(PINO_IN1, OUTPUT);
+  pinMode(PINO_IN2, OUTPUT);
+  pinMode(PINO_IN3, OUTPUT);
+  pinMode(PINO_IN4, OUTPUT);
+  analogWrite(PINO_IN1, 0);
+  analogWrite(PINO_IN2, 0);
+  analogWrite(PINO_IN3, 0);
+  analogWrite(PINO_IN4, 0);
+  analogWriteRange(VELOCIDADE_MAX);
+  
+  WiFi.softAP(ssid, password);
+  
+  server.on("/", HTTP_GET, handleRoot); 
+  server.on("/joy", HTTP_GET, handleJoy); // Reutilizamos o endpoint /joy
+  server.onNotFound(handleNotFound);      
+  
+  server.begin();
+}
+
+// --- LOOP (SEM MUDANÇAS) ---
+void loop() {
+  server.handleClient();
+}
